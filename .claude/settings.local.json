@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 /Users/lmy/Documents/new_blog/blog-assets/scripts/theme-image.py /Users/lmy/Documents/new_blog/blog-assets/images/ecma-proxy.jpg --mode dark)"
+    ]
+  }
+}
