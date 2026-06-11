@@ -1,7 +1,7 @@
 {
   "lightToDark": [
     { "from": "#000000", "to": "#E8E8E8" },
-    { "from": "#FFFFFF", "to": "#21252C" }
+    { "from": "#FFFFFF", "to": "#202124" }
   ],
   "darkToLight": [
     { "from": "#000000", "to": "#FAFAFA" },

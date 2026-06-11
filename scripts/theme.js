@@ -79,11 +79,14 @@ async function main() {
   const target = process.argv[3]; // 'dark' | 'light'
 
   if (!input || !['dark', 'light'].includes(target)) {
-    console.error('用法: node theme.js <path/to/image> <dark|light>');
+    console.error('用法: node theme.js <文件名> <dark|light>');
     process.exit(1);
   }
 
-  const absInput = path.resolve(input);
+  // 只传文件名时自动补 images/ 目录和 .png 扩展名
+  const normalized = input.includes('/') ? input : `images/${input}`;
+  const withExt    = path.extname(normalized) ? normalized : `${normalized}.png`;
+  const absInput   = path.resolve(withExt);
   await fs.access(absInput);
 
   const { map: colorMap, fromFile } = await loadColorMap();
@@ -94,8 +97,10 @@ async function main() {
   const sourceSuffix  = isSourceLight ? '-light' : '-dark';
   const stops         = isSourceLight ? colorMap.lightToDark : colorMap.darkToLight;
 
-  const sourceCopy   = path.join(parsed.dir, `${parsed.name}${sourceSuffix}${parsed.ext}`);
-  const invertedFile = path.join(parsed.dir, `${parsed.name}-${target}${parsed.ext}`);
+  // 去掉文件名中已有的 -light/-dark 后缀，避免重复叠加
+  const baseName     = parsed.name.replace(/-(light|dark)$/, '');
+  const sourceCopy   = path.join(parsed.dir, `${baseName}${sourceSuffix}${parsed.ext}`);
+  const invertedFile = path.join(parsed.dir, `${baseName}-${target}${parsed.ext}`);
 
   await fs.rename(absInput, sourceCopy);
   await invertGrayscaleRegions(sourceCopy, invertedFile, stops);
