@@ -1,0 +1,5 @@
+{
+  "scripts": {
+    "theme": "node theme.js"
+  }
+}
