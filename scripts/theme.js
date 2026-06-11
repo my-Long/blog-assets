@@ -8,8 +8,9 @@
  */
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const os   = require('os');
 const path = require('path');
-const fs = require('fs/promises');
+const fs   = require('fs/promises');
 
 const exec = promisify(execFile);
 
@@ -46,32 +47,64 @@ function hexBrightness(hex) {
   return (r + g + b) / 3;
 }
 
-async function detectSourceTheme(input) {
-  const { stdout } = await exec('magick', [
-    input,
-    '-colorspace', 'Gray',
-    '-format', '%[fx:mean*255]',
-    'info:'
-  ]);
-  return parseFloat(stdout.trim()) > 128 ? 'light' : 'dark';
+// light→dark 背景减除：消除彩色文字的白色光晕
+// new = u + min(R,G,B) * (bg_avg - 1)，单次 -fx 同时处理三通道，避免顺序修改导致的 min 偏差
+function bgSubFx(bgHex) {
+  const r = parseInt(bgHex.slice(1, 3), 16) / 255;
+  const g = parseInt(bgHex.slice(3, 5), 16) / 255;
+  const b = parseInt(bgHex.slice(5, 7), 16) / 255;
+  return `u + min(r,min(g,b)) * (${((r + g + b) / 3).toFixed(6)} - 1)`;
 }
 
-// 仅对近灰度区域做色阶映射，彩色像素原样保留
-// stops 按 from 亮度排序后取首尾作为 +level-colors 端点：black→stops[0].to，white→stops[last].to
-// +level-colors 在端点间平滑插值，消除抗锯齿描边伪影
-async function invertGrayscaleRegions(input, output, stops) {
-  const sorted = [...stops].sort((a, b) => hexBrightness(a.from) - hexBrightness(b.from));
-  const levelColors = `${sorted[0].to},${sorted[sorted.length - 1].to}`;
+// 把 stops 拼成 256px 宽的 CLUT 临时文件：
+// 每段用 gradient:A-B 生成，各段长度按 from-亮度位置划分，+append 后正好 256px
+// 避免 sparse-color Barycentric 在 1D 共线点上矩阵奇异的问题
+async function buildClutFile(sorted) {
+  const clutFile = path.join(os.tmpdir(), `theme-clut-${process.pid}.png`);
+  const args = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const p0 = Math.round(hexBrightness(sorted[i].from));
+    const p1 = Math.round(hexBrightness(sorted[i + 1].from));
+    const isLast = i === sorted.length - 2;
+    const width  = isLast ? (p1 - p0 + 1) : (p1 - p0);
+    args.push('(', '-size', `${width}x1`, `gradient:${sorted[i].to}-${sorted[i + 1].to}`, ')');
+  }
+  await exec('magick', [...args, '+append', clutFile]);
+  return clutFile;
+}
 
-  await exec('magick', [
-    input,
-    '(', '+clone', '-channel', 'RGB', '+level-colors', levelColors, '+channel', ')',
-    '(', '-clone', '0', '-alpha', 'off',
-      '-fx', `(max(max(r,g),b) - min(min(r,g),b)) < ${CHROMA_THRESHOLD} ? 1 : 0`,
-    ')',
-    '-compose', 'Over', '-composite',
-    output
-  ]);
+// 近灰度区域：CLUT 多段映射（所有 stop 均生效）
+// 彩色区域（light→dark）：背景减除（消除白色光晕）
+// 两者通过色度遮罩合成
+async function invertGrayscaleRegions(input, output, stops, isSourceLight) {
+  const sorted     = [...stops].sort((a, b) => hexBrightness(a.from) - hexBrightness(b.from));
+  const chromaMask = `(max(max(r,g),b) - min(min(r,g),b)) < ${CHROMA_THRESHOLD} ? 1 : 0`;
+  const clutFile   = await buildClutFile(sorted);
+
+  try {
+    if (isSourceLight) {
+      const bgHex = sorted[sorted.length - 1].to;
+      await exec('magick', [
+        input,
+        '(', '+clone', '-channel', 'RGB', '-fx', bgSubFx(bgHex), '+channel', ')', // [1] 背景减除
+        '(', '-clone', '0', clutFile, '-clut', ')',                                 // [2] CLUT 灰度映射
+        '(', '-clone', '0', '-alpha', 'off', '-fx', chromaMask, ')',               // [3] 遮罩
+        '-delete', '0',
+        '-compose', 'Over', '-composite',
+        output
+      ]);
+    } else {
+      await exec('magick', [
+        input,
+        '(', '+clone', clutFile, '-clut', ')',                                      // [1] CLUT 灰度映射
+        '(', '-clone', '0', '-alpha', 'off', '-fx', chromaMask, ')',               // [2] 遮罩
+        '-compose', 'Over', '-composite',
+        output
+      ]);
+    }
+  } finally {
+    await fs.unlink(clutFile).catch(() => {});
+  }
 }
 
 async function main() {
@@ -103,7 +136,7 @@ async function main() {
   const invertedFile = path.join(parsed.dir, `${baseName}-${target}${parsed.ext}`);
 
   await fs.rename(absInput, sourceCopy);
-  await invertGrayscaleRegions(sourceCopy, invertedFile, stops);
+  await invertGrayscaleRegions(sourceCopy, invertedFile, stops, isSourceLight);
 
   console.log(`🎨 颜色配置: ${fromFile ? CONFIG_FILE : '内置默认值'}`);
   console.log(`📋 原图副本: ${sourceCopy}`);
