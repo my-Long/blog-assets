@@ -1,9 +1,18 @@
 {
   "lightToDark": [
     { "from": "#000000", "to": "#E8E8E8" },
-    { "from": "#9AA5BB", "to": "#E8E8E8" }
+    { "from": "#9AA5BB", "to": "#E8E8E8" },
+    { "from": "#ffffff", "to": "#202124" },
+    { "from": "#F0F0FE", "to": "#E7E7E8" },
+    { "from": "#FBFBFC", "to": "#292A2D" },
+    { "from": "#E4E4E7", "to": "#E4E4E7" },
+    { "from": "#E7E7E8", "to": "#393939" },
+    { "from": "#E4E4E7", "to": "#E4E4E7" },
+    { "from": "#F0F0F3", "to": "#393939" },
+    { "from": "#FAFAFA", "to": "#21222C" }
   ],
   "darkToLight": [
+    { "from": "#40EAEC", "to": "#FDEAEC", "fuzz": 25 },
     { "from": "#000000", "to": "#FAFAFA" },
     { "from": "#21222C", "to": "#F7F8FA" },
     { "from": "#353746", "to": "#F3F3F3" },

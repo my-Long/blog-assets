@@ -4,7 +4,10 @@
       "Bash(python3 /Users/lmy/Documents/new_blog/blog-assets/scripts/theme-image.py /Users/lmy/Documents/new_blog/blog-assets/images/ecma-proxy.jpg --mode dark)",
       "Bash(git commit *)",
       "Bash(node *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(magick images/post-content-cross-light.png -format \"%c\" histogram:info:-)",
+      "Bash(sort -t: -k1 -rn)",
+      "Bash(magick images/keda-dark.png -format \"%c\" histogram:info:-)"
     ]
   }
 }
