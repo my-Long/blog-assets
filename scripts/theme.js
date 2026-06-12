@@ -41,6 +41,24 @@ async function analyzeImage(imgPath) {
   }
 }
 
+// 对图片做一对一颜色替换，直接覆盖原文件
+async function replaceColors(imgPath, pairs) {
+  const normalized = imgPath.includes('/') ? imgPath : `images/${imgPath}`;
+  const withExt    = path.extname(normalized) ? normalized : `${normalized}.png`;
+  const absPath    = path.resolve(withExt);
+  await fs.access(absPath);
+
+  const args = [absPath];
+  for (const { from, to, fuzz = 8 } of pairs) {
+    args.push('-fuzz', `${fuzz}%`, '-fill', to, '-opaque', from);
+  }
+  args.push(absPath);
+  await exec('magick', args);
+
+  console.log(`✏️  已替换 ${path.basename(absPath)}:`);
+  for (const { from, to } of pairs) console.log(`   ${from} → ${to}`);
+}
+
 async function main() {
   if (process.argv[2] === '--analyze') {
     const imgArg = process.argv[3];
@@ -52,12 +70,45 @@ async function main() {
     return;
   }
 
+  if (process.argv[2] === '--replace') {
+    const imgArg   = process.argv[3];
+    const pairArgs = process.argv.slice(4);
+    if (!imgArg || pairArgs.length === 0) {
+      console.error('用法: node theme.js --replace <文件名> <原色>/<新色> [<原色>/<新色> ...]');
+      console.error('      颜色格式: #RRGGBB，可追加 :<fuzz%> 控制容差，默认 8%');
+      console.error('      示例: node theme.js --replace keda-light #E0E0E0/#FFFFFF #F5F5F5/#FFFFFF:12');
+      process.exit(1);
+    }
+    const pairs = pairArgs.map(p => {
+      // 格式: #FROM/<fuzz>/#TO 或 #FROM/#TO 或 #FROM/#TO:<fuzz>
+      const m = p.match(/^(#[0-9A-Fa-f]{6})(?::(\d+))?\/( #[0-9A-Fa-f]{6})(?::(\d+))?$/);
+      // 简化格式: #FROM/#TO 或 #FROM/#TO:fuzz 或 #FROM:fuzz/#TO
+      const m2 = p.match(/^(#[0-9A-Fa-f]{6})(?::(\d+))?\/( ?#[0-9A-Fa-f]{6})(?::(\d+))?$/);
+      const parts = p.split('/');
+      if (parts.length !== 2) {
+        console.error(`❌ 无效颜色对: ${p}，格式应为 #RRGGBB/#RRGGBB`);
+        process.exit(1);
+      }
+      const parseColor = s => {
+        const cm = s.trim().match(/^(#[0-9A-Fa-f]{6})(?::(\d+))?$/);
+        if (!cm) { console.error(`❌ 无效颜色: ${s}`); process.exit(1); }
+        return { color: cm[1].toUpperCase(), fuzz: cm[2] ? parseInt(cm[2]) : null };
+      };
+      const fromParsed = parseColor(parts[0]);
+      const toParsed   = parseColor(parts[1]);
+      return { from: fromParsed.color, to: toParsed.color, fuzz: fromParsed.fuzz ?? toParsed.fuzz ?? 8 };
+    });
+    await replaceColors(imgArg, pairs);
+    return;
+  }
+
   const input  = process.argv[2];
   const target = process.argv[3]; // 'dark' | 'light'
 
   if (!input || !['dark', 'light'].includes(target)) {
     console.error('用法: node theme.js <文件名> <dark|light>');
     console.error('      node theme.js --analyze <文件名>');
+    console.error('      node theme.js --replace <文件名> <原色>/<新色> [...]');
     process.exit(1);
   }
 
@@ -76,9 +127,14 @@ async function main() {
   await fs.rename(absInput, sourceCopy);
 
   // invert + hue-rotate 180°：黑白互换，彩色基本保留
-  // -level-colors 把暗端从 #000000 线性抬升到 #202124，亮端保持 #FFFFFF
-  await exec('magick', [sourceCopy, '-negate', '-modulate', '100,100,200',
-    '+level-colors', '#202124,#FFFFFF', invertedFile]);
+  // +level-colors 把暗端从 #000000 线性抬升到 #202124，亮端保持 #FFFFFF
+  // light 图中 #E0E0E0 统一归白：source 为 light 时先替换再 negate；output 为 light 时 pipeline 末端替换
+  const magickArgs = [sourceCopy];
+  if (isSourceLight) magickArgs.push('-fuzz', '8%', '-fill', '#FFFFFF', '-opaque', '#E0E0E0');
+  magickArgs.push('-negate', '-modulate', '100,100,200', '+level-colors', '#202124,#FFFFFF');
+  if (!isSourceLight) magickArgs.push('-fuzz', '8%', '-fill', '#FFFFFF', '-opaque', '#E0E0E0');
+  magickArgs.push(invertedFile);
+  await exec('magick', magickArgs);
 
   console.log(`📋 原图副本: ${sourceCopy}`);
   console.log(`✨ 目标版本: ${invertedFile}`);
